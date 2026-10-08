@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chainlock — Supply-chain security for your dependencies</title>
+<meta name="description" content="Scan your lockfiles against the OSV vulnerability database, catch typosquats and export an SBOM — one zero-dependency CLI. Cloud dashboard in early access.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0f0d'/%3E%3Cpath d='M13 10h-2a6 6 0 0 0 0 12h2v-2.4h-2a3.6 3.6 0 0 1 0-7.2h2zm6 0h2a6 6 0 0 1 0 12h-2v-2.4h2a3.6 3.6 0 0 0 0-7.2h-2zm-7 4.8h8v2.4h-8z' fill='%2322c55e'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0a0f0d;
+    --panel: #0e1512;
+    --panel-2: #111a16;
+    --border: #1e2a24;
+    --text: #dce7e1;
+    --muted: #8aa396;
+    --accent: #22c55e;
+    --accent-dim: #16a34a;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  .glow {
+    position: absolute; inset: 0; height: 560px; overflow: hidden; z-index: -1;
+    background:
+      radial-gradient(600px 300px at 20% 0%, rgba(34,197,94,.13), transparent 70%),
+      radial-gradient(500px 260px at 85% 10%, rgba(34,197,94,.07), transparent 70%);
+  }
+
+  /* Nav */
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 0;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: var(--text); }
+  .brand svg { display: block; }
+  nav .links { display: flex; gap: 26px; align-items: center; font-size: 14.5px; }
+  nav .links a { color: var(--muted); }
+  nav .links a:hover { color: var(--text); text-decoration: none; }
+  .btn {
+    display: inline-block; padding: 9px 18px; border-radius: 8px;
+    font-weight: 600; font-size: 14.5px; border: 1px solid transparent;
+    transition: transform .06s ease, background .15s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: var(--accent); color: #04120a; }
+  .btn-primary:hover { background: #2fe06c; text-decoration: none; }
+  .btn-ghost { border-color: var(--border); color: var(--text); }
+  .btn-ghost:hover { border-color: var(--accent-dim); text-decoration: none; }
+
+  /* Hero */
+  header { position: relative; padding: 72px 0 64px; }
+  .hero { display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: center; }
+  .kicker {
+    display: inline-block; font-family: var(--mono); font-size: 12.5px;
+    color: var(--accent); border: 1px solid var(--border); background: var(--panel);
+    padding: 4px 12px; border-radius: 999px; margin-bottom: 18px;
+  }
+  h1 { font-size: 44px; line-height: 1.12; letter-spacing: -.02em; font-weight: 800; }
+  h1 .accent { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 17.5px; margin: 18px 0 28px; max-width: 46ch; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .meta { margin-top: 22px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .meta span { color: var(--accent); }
+
+  /* Terminal */
+  .terminal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.45);
+    font-family: var(--mono); font-size: 13px;
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+    background: var(--panel-2); border-bottom: 1px solid var(--border);
+  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; } .dot.y { background: #febc2e; } .dot.g { background: #28c840; }
+  .term-title { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .term-body { padding: 16px 18px; white-space: pre; overflow-x: auto; line-height: 1.75; font-size: 12.5px; }
+  .t-cmd { color: var(--text); } .t-cmd::before { content: "$ "; color: var(--accent); }
+  .t-dim { color: var(--muted); }
+  .t-red { color: var(--red); font-weight: 700; }
+  .t-yel { color: var(--yellow); }
+  .t-grn { color: var(--accent); }
+
+  /* Sections */
+  section { padding: 68px 0; }
+  h2 { font-size: 30px; letter-spacing: -.015em; margin-bottom: 10px; }
+  .section-sub { color: var(--muted); margin-bottom: 40px; max-width: 62ch; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px;
+  }
+  .card .ico {
+    width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
+    background: rgba(34,197,94,.1); margin-bottom: 14px;
+  }
+  .card h3 { font-size: 16.5px; margin-bottom: 6px; }
+  .card p { color: var(--muted); font-size: 14.5px; }
+  .card code {
+    font-family: var(--mono); font-size: 12.5px; color: var(--accent);
+    background: rgba(34,197,94,.08); padding: 1px 6px; border-radius: 5px;
+  }
+
+  /* Steps */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; counter-reset: step; }
+  .step { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+  .step::before {
+    counter-increment: step; content: "0" counter(step);
+    font-family: var(--mono); color: var(--accent); font-size: 13px; display: block; margin-bottom: 10px;
+  }
+  .step pre {
+    font-family: var(--mono); font-size: 12.5px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; margin-top: 14px; overflow-x: auto;
+  }
+  .step p { color: var(--muted); font-size: 14.5px; margin-top: 4px; }
+
+  /* Cloud band */
+  .cloud {
+    background:
+      radial-gradient(500px 220px at 50% 0%, rgba(34,197,94,.12), transparent 70%),
+      var(--panel);
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 52px 48px; text-align: center;
+  }
+  .cloud .tag {
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+    letter-spacing: .12em; text-transform: uppercase;
+  }
+  .cloud h2 { margin-top: 12px; }
+  .cloud p { color: var(--muted); max-width: 56ch; margin: 0 auto 26px; }
+  .cloud-list {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+    max-width: 760px; margin: 0 auto 30px; text-align: left;
+  }
+  .cloud-list div {
+    border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+    background: var(--bg); font-size: 14px; color: var(--muted);
+  }
+  .cloud-list b { color: var(--text); display: block; margin-bottom: 3px; font-size: 14.5px; }
+
+  footer { border-top: 1px solid var(--border); padding: 34px 0 46px; margin-top: 30px; }
+  .foot { display: flex; justify-content: space-between; align-items: center; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+  .foot .brand { font-size: 15px; }
+  .foot a { color: var(--muted); } .foot a:hover { color: var(--text); }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; }
+    h1 { font-size: 34px; }
+    .grid, .steps, .cloud-list { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 600px) {
+    .grid, .steps, .cloud-list { grid-template-columns: 1fr; }
+    nav .links a.navlink { display: none; }
+    .cloud { padding: 40px 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+
+<div class="wrap">
+  <nav>
+    <a class="brand" href="/">
+      <svg width="26" height="26" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#111a16"/><path d="M13 10h-2a6 6 0 0 0 0 12h2v-2.4h-2a3.6 3.6 0 0 1 0-7.2h2zm6 0h2a6 6 0 0 1 0 12h-2v-2.4h2a3.6 3.6 0 0 0 0-7.2h-2zm-7 4.8h8v2.4h-8z" fill="#22c55e"/></svg>
+      Chainlock
+    </a>
+    <div class="links">
+      <a class="navlink" href="#features">Features</a>
+      <a class="navlink" href="#how">Quickstart</a>
+      <a class="navlink" href="#cloud">Cloud</a>
+      <a class="navlink" href="https://github.com/speeky/chainlock">GitHub</a>
+      <a class="btn btn-primary" href="mailto:hello@chainlock.dev">Early access</a>
+    </div>
+  </nav>
+</div>
+
+<header>
+  <div class="wrap hero">
+    <div>
+      <span class="kicker">open source · MIT · zero-dependency CLI</span>
+      <h1>Supply-chain security<br>for your <span class="accent">dependencies</span>.</h1>
+      <p class="sub">
+        Chainlock matches your lockfiles against the OSV vulnerability database,
+        scores supply-chain risk per package, flags typosquats and exports an SBOM —
+        locally and in CI.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/speeky/chainlock">Get started on GitHub</a>
+        <a class="btn btn-ghost" href="#cloud">Chainlock Cloud →</a>
+      </div>
+      <p class="meta"><span>pip install chainlock-cli</span> · Python · npm · Go lockfiles</p>
+    </div>
+
+    <div class="terminal">
+      <div class="term-bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="term-title">chainlock scan requirements.txt</span>
+      </div>
+      <div class="term-body"><span class="t-cmd">chainlock scan requirements.txt</span>
+
+<span class="t-dim">Querying OSV database for 6 deps...</span>
+
+RISK      PACKAGE     VERSION   FINDINGS
+<span class="t-red">CRITICAL</span>  flask        2.0.0    4 advisories <span class="t-yel">· unpinned</span>
+<span class="t-red">HIGH</span>      requests     2.19.0   10 advisories GHSA-9hjg
+<span class="t-red">HIGH</span>      urllib3      1.24.0   26 advisories
+<span class="t-yel">MEDIUM</span>    reqeusts     0.0.8    <span class="t-red">typosquat of 'requests'</span>
+<span class="t-grn">LOW</span>       rich         13.7.0   clean
+<span class="t-grn">LOW</span>       sqlalchemy   1.3.0    clean
+
+Summary: 3 of 6 dependencies vulnerable
+<span class="t-yel">1</span> critical · <span class="t-red">2</span> high · <span class="t-yel">1</span> medium · <span class="t-grn">2</span> low
+<span class="t-dim">Data: OSV (osv.dev) · exit code 1</span></div>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything a supply-chain check should be</h2>
+    <p class="section-sub">No agents, no sidecars, no dependency tree of its own. One binary-minded CLI you can read in an afternoon.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <h3>OSV-powered scanning</h3>
+        <p>Batch queries against Google's <code>OSV.dev</code> database across PyPI, npm and Go — advisories, CVEs and fix versions.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+        <h3>Typosquat detection</h3>
+        <p>Edit-distance matching against curated lists of the most-imitated package names — catch <code>reqeusts</code> before it ships.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v6h-6"/></svg></div>
+        <h3>Risk scoring</h3>
+        <p>Every dependency gets a 0–100 score from advisory severity, fix availability, pinning discipline and typosquat signals.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+        <h3>CycloneDX SBOM</h3>
+        <p><code>--sbom sbom.json</code> emits a CycloneDX 1.5 bill of materials with purls — ready for your compliance pipeline.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><path d="m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16"/></svg></div>
+        <h3>Zero dependencies</h3>
+        <p>The tool auditing your supply chain never adds to it. Python stdlib only — <code>pip install</code> and you're done.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+        <h3>CI-native exit codes</h3>
+        <p>Non-zero exit on HIGH/CRITICAL findings makes any pipeline a policy gate. One line in GitHub Actions.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2>Up and running in 60 seconds</h2>
+    <p class="section-sub">Works with requirements.txt, package-lock.json and go.sum.</p>
+    <div class="steps">
+      <div class="step">
+        <h3>Install</h3>
+        <p>One package, no transitive deps.</p>
+        <pre>pip install chainlock-cli</pre>
+      </div>
+      <div class="step">
+        <h3>Scan</h3>
+        <p>Point it at any supported lockfile.</p>
+        <pre>chainlock scan requirements.txt \
+  --sbom sbom.json</pre>
+      </div>
+      <div class="step">
+        <h3>Enforce</h3>
+        <p>Gate your CI on the exit code.</p>
+        <pre>- run: chainlock scan package-lock.json</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="cloud">
+  <div class="wrap">
+    <div class="cloud">
+      <span class="tag">Chainlock Cloud · early access</span>
+      <h2>The CLI is open source. The platform is coming.</h2>
+      <p>Chainlock Cloud turns one-off scans into continuous supply-chain posture for your whole organization.</p>
+      <div class="cloud-list">
+        <div><b>Org dashboard</b>Every repo and CI run in one place, with diff-aware alerts on new findings.</div>
+        <div><b>Policy engine</b>Block typosquats, unpinned versions or license drift at pull-request time.</div>
+        <div><b>Continuous monitoring</b>Re-alert when a new advisory lands on a version you already shipped.</div>
+      </div>
+      <a class="btn btn-primary" href="mailto:hello@chainlock.dev?subject=Chainlock%20Cloud%20early%20access">Request early access</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <span class="brand">
+      <svg width="20" height="20" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#111a16"/><path d="M13 10h-2a6 6 0 0 0 0 12h2v-2.4h-2a3.6 3.6 0 0 1 0-7.2h2zm6 0h2a6 6 0 0 1 0 12h-2v-2.4h2a3.6 3.6 0 0 0 0-7.2h-2zm-7 4.8h8v2.4h-8z" fill="#22c55e"/></svg>
+      Chainlock
+    </span>
+    <span>MIT licensed · Vulnerability data from <a href="https://osv.dev" rel="noopener">OSV</a></span>
+    <span><a href="https://github.com/speeky/chainlock">GitHub</a> · <a href="mailto:hello@chainlock.dev">hello@chainlock.dev</a></span>
+  </div>
+</footer>
+</body>
+</html>
